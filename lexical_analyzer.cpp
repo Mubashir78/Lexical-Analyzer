@@ -34,14 +34,16 @@ private:
     
 public:
     MathLexer() {
-        // Define token patterns
+        // Define token patterns - ORDER MATTERS!
+        // More specific patterns should come first
         tokenSpecs = {
-            {TokenType::NUMBER,    R"(\d+(\.\d*)?)"},     // Integer or decimal number
-            {TokenType::VARIABLE,  R"([a-zA-Z_]\w*)"},    // Variables and function names
-            {TokenType::OPERATOR,  R"([+\-*/^])"},        // Arithmetic operators
-            {TokenType::LPAREN,    R"(\()"},              // Left parenthesis
-            {TokenType::RPAREN,    R"(\))"},              // Right parenthesis
+            {TokenType::LPAREN,    R"(\()"},              // Left parenthesis (must come before operator)
+            {TokenType::RPAREN,    R"(\))"},              // Right parenthesis (must come before comma)
             {TokenType::COMMA,     R"(,)"},               // Comma for function arguments
+            {TokenType::NUMBER,    R"(\d+(\.\d*)?)"},     // Integer or decimal number
+            {TokenType::FUNCTION,  R"(sin|cos|tan|log|exp|sqrt)"}, // Known functions
+            {TokenType::OPERATOR,  R"([+\-*/^])"},        // Arithmetic operators
+            {TokenType::VARIABLE,  R"([a-zA-Z_]\w*)"},    // Variables
             {TokenType::UNKNOWN,   R"(.)"}                // Any other character
         };
         
@@ -52,7 +54,7 @@ public:
             pattern += "(" + spec.second + ")";
         }
         tokenRegex = regex(pattern);
-    }
+    }   
     
     vector<Token> tokenize(const string& text) {
         vector<Token> tokens;
@@ -66,25 +68,22 @@ public:
             
             // Determine which token type was matched
             TokenType type = TokenType::UNKNOWN;
-            for (size_t i = 0; i < tokenSpecs.size(); ++i) {
+            for (size_t i = 0; i < tokenSpecs.size(); ++i) 
                 if (match[i + 1].matched) {
                     type = tokenSpecs[i].first;
                     break;
                 }
-            }
+            
             
             // Skip whitespace (not in specs, caught by UNKNOWN)
-            if (value.find_first_not_of(" \t\n\r") == string::npos) {
-                continue;
-            }
+            if (value.find_first_not_of(" \t\n\r") == string::npos) continue;
+            
             
             // Check if variable is a known function
-            if (type == TokenType::VARIABLE) {
-                if (functions.find(value) != functions.end()) {
+            if (type == TokenType::VARIABLE) 
+                if (functions.find(value) != functions.end()) 
                     type = TokenType::FUNCTION;
-                }
-            }
-            
+                
             tokens.push_back({type, value, pos});
         }
         
@@ -112,7 +111,8 @@ int main() {
     
     cout << "Tokenizing expression: " << test_expr << endl;
     vector<Token> tokens = lexer.tokenize(test_expr);
-    
+   
+/**/
     cout << "\nTokens found:" << endl;
     for (const auto& token : tokens) {
         cout << token.position << ": " 
