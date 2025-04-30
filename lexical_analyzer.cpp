@@ -1,13 +1,11 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <tuple>
-#include <regex>
 #include <unordered_set>
 #include <stdexcept>
 #include <iomanip>
 #include <exception>
-#include <stack>
+#include <cctype>
 
 using namespace std;
 
@@ -20,8 +18,7 @@ enum class TokenType {
     LPAREN,
     RPAREN,
     COMMA,
-    UNKNOWN,
-    WHITESPACE
+    UNKNOWN
 };
 
 // Token structure
@@ -31,92 +28,117 @@ struct Token {
     size_t position;
 };
 
+enum class LexerState {
+    START,
+    IN_NUMBER,
+    IN_IDENTIFIER
+};
 
+// Symbol Table class
+class SymbolTable {
+private:
+    unordered_set<string> variables;
+public:
+    void addVariable(const string& varName) { variables.insert(varName); }
+    bool exists(const string& varName) const { return variables.find(varName) != variables.end(); }
+
+    void display() const {
+        cout << "\nVariables found:\n";
+        if (variables.empty()) { cout << "None\n"; return; }
+        for (const auto& var : variables)
+            cout << "- " << var << endl;
+    }
+};
+
+// Math Lexer class using FSM
 class MathLexer {
-    private:
-        vector<pair<TokenType, string>> tokenSpecs;
-        unordered_set<string> functions = {"sin", "cos", "tan", "log", "exp", "sqrt"};
-        regex tokenRegex;
-        
-    public:
-        MathLexer() {
-            // Define token patterns - ORDER MATTERS!
-            // More specific patterns should come first
-            tokenSpecs = {
-                {TokenType::LPAREN,    R"(\()"},              // Left parenthesis (must come before operator)
-                {TokenType::RPAREN,    R"(\))"},              // Right parenthesis (must come before comma)
-                {TokenType::COMMA,     R"(,)"},               // Comma for function arguments
-                {TokenType::NUMBER,    R"(\d+(\.\d*)?)"},     // Integer or decimal number
-                {TokenType::FUNCTION,  R"(sin|cos|tan|log|exp|sqrt)"}, // Known functions
-                {TokenType::OPERATOR,  R"([+\-*/^])"},        // Arithmetic operators
-                {TokenType::VARIABLE,  R"([a-zA-Z_]\w*)"},    // Variables
-                {TokenType::UNKNOWN,   R"(.)"}                // Any other character
-            };
-            
-            // Combine all patterns into one regular expression
-            string pattern;
-            for (const auto& spec : tokenSpecs) {
-                if (!pattern.empty()) pattern += "|";
-                pattern += "(" + spec.second + ")";
-            }
-            tokenRegex = regex(pattern);
-        
-        }
-        
-        vector<Token> tokenize(const string& text) {
-            vector<Token> tokens;
-            stack<size_t> parenStack;  // To track opening parenthesis positions
+private:
+    unordered_set<string> functions = { "sin", "cos", "tan", "log", "exp", "sqrt" };
 
-            // Debug output
-            // cout << "\nDebug - Input text: '" << text << "'\n";
-            // cout << "Debug - Regex pattern has " << tokenRegex.mark_count() << " groups\n";
-            
-            sregex_iterator it(text.begin(), text.end(), tokenRegex);
-            sregex_iterator end;
-            
-            for (; it != end; ++it) {
-                smatch match = *it;
-                size_t pos = match.position();
-                string value = match.str();
-                
-                // Determine token type
-                TokenType type = TokenType::UNKNOWN;
-                for (size_t i = 0; i < tokenSpecs.size(); ++i) {
-                    if (match[i + 1].matched) {
-                        type = tokenSpecs[i].first;
+public:
+    vector<Token> tokenize(const string& text) {
+        vector<Token> tokens;
+        LexerState state = LexerState::START;
+        string current;
+        size_t start = 0;
+        vector<size_t> parenStack;
+
+        auto pushToken = [&](TokenType type, size_t pos, const string& val) {
+            tokens.push_back({ type, val, pos });
+        };
+
+        for (size_t i = 0; i <= text.length(); ++i) {
+            char c = (i < text.length()) ? text[i] : '\0';
+
+            switch (state) {
+                case LexerState::START:
+                    if (isspace(c)) continue;
+
+                    start = i;
+                    if (isdigit(c)) {
+                        current = c;
+                        state = LexerState::IN_NUMBER;
+                    }
+                    else if (isalpha(c) || c == '_') {
+                        current = c;
+                        state = LexerState::IN_IDENTIFIER;
+                    }
+                    else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '^') {
+                        pushToken(TokenType::OPERATOR, i, string(1, c));
+                    }
+                    else if (c == '(') {
+                        pushToken(TokenType::LPAREN, i, "(");
+                        parenStack.push_back(i);
+                    }
+                    else if (c == ')') {
+                        if (parenStack.empty()) throw runtime_error("Unmatched closing parenthesis at position " + to_string(i));
+                        pushToken(TokenType::RPAREN, i, ")");
+                        parenStack.pop_back();
+                    }
+                    else if (c == ',') {
+                        pushToken(TokenType::COMMA, i, ",");
+                    }
+                    else if (c == '\0') {
                         break;
                     }
-                }
-                
-                if (type == TokenType::WHITESPACE) continue;
-                
-                // Track parentheses
-                if (type == TokenType::LPAREN) {
-                    parenStack.push(pos);
-                } 
-                else if (type == TokenType::RPAREN) {
-                    if (parenStack.empty()) {
-                        throw runtime_error("Unmatched closing parenthesis at position " + to_string(pos));
+                    else {
+                        pushToken(TokenType::UNKNOWN, i, string(1, c));
                     }
-                    parenStack.pop();
-                }
-                
-                tokens.push_back({type, value, pos});
+                    break;
+
+                case LexerState::IN_NUMBER:
+                    if (isdigit(c) || c == '.') {
+                        current += c;
+                    } else {
+                        pushToken(TokenType::NUMBER, start, current);
+                        state = LexerState::START;
+                        --i; // Reprocess this character
+                    }
+                    break;
+
+                case LexerState::IN_IDENTIFIER:
+                    if (isalnum(c) || c == '_') {
+                        current += c;
+                    } else {
+                        TokenType t = (functions.count(current)) ? TokenType::FUNCTION : TokenType::VARIABLE;
+                        pushToken(t, start, current);
+                        state = LexerState::START;
+                        --i;
+                    }
+                    break;
             }
-            
-            // Check for unmatched opening parentheses
-            if (!parenStack.empty()) {
-                throw runtime_error("Unmatched opening parenthesis at position " + to_string(parenStack.top()));
-            }
-            
-            return tokens;
         }
-    };
 
+        if (!parenStack.empty())
+            throw runtime_error("Unmatched opening parenthesis at position " + to_string(parenStack.back()));
 
+        return tokens;
+    }
+};
 
+// Helper function to convert enum to string
 string tokenTypeToString(TokenType type) {
-    switch(type) {
+    switch (type) {
         case TokenType::NUMBER:    return "NUMBER";
         case TokenType::VARIABLE:  return "VARIABLE";
         case TokenType::FUNCTION:  return "FUNCTION";
@@ -124,78 +146,97 @@ string tokenTypeToString(TokenType type) {
         case TokenType::LPAREN:    return "LPAREN";
         case TokenType::RPAREN:    return "RPAREN";
         case TokenType::COMMA:     return "COMMA";
-        case TokenType::WHITESPACE:return "WHITESPACE";
         default:                   return "UNKNOWN";
     }
 }
 
-string getExpression() {
-    string exp;
-    if (!getline(cin, exp)) {
-        throw runtime_error("Failed to read input");
-    }
-    return exp;
-}
-
-// Helper function to display detailed error information
+// Error display
 void display_error_details(const exception& e, const string& exp) {
     cerr << "\nERROR: " << e.what() << endl;
     cerr << "Expression: " << exp << endl;
-    
+
     try {
         string errorMsg(e.what());
         size_t posMarker = errorMsg.find("at position ");
-        
         if (posMarker != string::npos) {
             size_t errorPos = stoul(errorMsg.substr(posMarker + 12));
-            errorPos = min(errorPos, exp.length());  // Ensure position is within bounds
+            errorPos = min(errorPos, exp.length());
             cerr << string(errorPos, ' ') << "^\n";
         } else {
-            cerr << "^\n";  // Generic error position indicator
+            cerr << "^\n";
         }
-    } 
-    catch (...) {
-        cerr << "^\n";  // Fallback error position indicator
+    } catch (...) {
+        cerr << "^\n";
     }
 }
 
-void user_interface() {
+// Simple syntax validator
+bool validate_syntax(const vector<Token>& tokens) {
+    if (tokens.empty())
+        throw runtime_error("No tokens to parse.");
+
+    TokenType lastType = TokenType::UNKNOWN;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const auto& token = tokens[i];
+
+        if (token.type == TokenType::OPERATOR) {
+            if (i == 0 || i == tokens.size() - 1)
+                throw runtime_error("Expression cannot start or end with an operator at position " + to_string(token.position));
+            if (lastType == TokenType::OPERATOR || lastType == TokenType::LPAREN)
+                throw runtime_error("Invalid operator usage at position " + to_string(token.position));
+        }
+
+        if (token.type == TokenType::COMMA) {
+            if (lastType != TokenType::RPAREN && lastType != TokenType::VARIABLE && lastType != TokenType::NUMBER)
+                throw runtime_error("Comma misplacement at position " + to_string(token.position));
+        }
+
+        lastType = token.type;
+    }
+
+    return true;
+}
+
+// User Interface
+void user_interface(const string& exp) {
+    cout << "\nFor the following expression: " << exp << endl;
+
+    MathLexer lexer;
+    SymbolTable symTable;
+    cout << "Tokenizing expression..." << endl;
+
     try {
-        cout << "Enter Expression: ";
-        string exp = getExpression();
-        if (exp.empty()) {
-            throw runtime_error("Empty expression");
+        vector<Token> tokens = lexer.tokenize(exp);
+
+        cout << "\nTokens found:\n";
+        cout << "Position\tType\t\tValue\n";
+        cout << string(40, '-') << endl;
+
+        for (const auto& token : tokens) {
+            cout << token.position << "\t\t" << left << setw(12) << tokenTypeToString(token.type) << token.value << endl;
+            if (token.type == TokenType::VARIABLE)
+                symTable.addVariable(token.value);
         }
 
-        cout << "\nFor the following expression: " << exp << endl;
+        symTable.display();
 
-        MathLexer lexer;
-        cout << "Tokenizing expression..." << endl;
-        
-        try {
-            vector<Token> tokens = lexer.tokenize(exp);
-
-            // Display tokens in a clean table format
-            cout << "\nTokens found:" << endl;
-            cout << "Position\tType\t\tValue" << endl;
-            cout << string(40, '-') << endl;
-            
-            for (const auto& token : tokens) {
-                cout << token.position << "\t\t" 
-                     << left << setw(12) << tokenTypeToString(token.type) 
-                     << token.value << endl;
-            }
-        }
-        catch (const exception& e) {
-            display_error_details(e, exp);
-        }
-    } 
+        cout << "\nValidating syntax...\n";
+        validate_syntax(tokens);
+        cout << "Expression syntax is valid.\n";
+    }
     catch (const exception& e) {
-        cerr << "\nError: " << e.what() << endl;
+        display_error_details(e, exp);
     }
 }
 
-int main() {
-    user_interface();
+int main(int argc, char* argv[]) {
+    try {
+        if (argc < 2) throw runtime_error("No expression given.");
+        user_interface(argv[1]);
+    } catch (...) {
+        cout << "Invalid Expression" << endl;
+    }
+
     return 0;
 }

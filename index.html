@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Math Lexer</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #output { white-space: pre; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <h1>Math Expression Analyzer</h1>
+    <input type="text" id="expression" placeholder="Enter expression">
+    <button onclick="analyze()">Analyze</button>
+    <div id="output"></div>
+
+    <script>
+        async function analyze() {
+            const expr = document.getElementById('expression').value;
+            const output = document.getElementById('output');
+            output.textContent = "Processing...";
+            
+            try {
+                const response = await fetch('http://localhost:8000/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ expression: expr })
+                });
+                
+                if (!response.ok) throw new Error('Server error');
+                
+                const data = await response.json();
+                output.textContent = data.output || "No output";
+                if (data.error) console.error(data.error);
+            } catch (error) {
+                output.textContent = `Error: ${error.message}`;
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
