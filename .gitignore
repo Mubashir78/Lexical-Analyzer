@@ -1,0 +1,6 @@
+*.o
+lexical_analyzer
+math/
+__pycache__/
+*.pyc
+.venv/

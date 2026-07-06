@@ -72,14 +72,14 @@ public:
 
             switch (state) {
                 case LexerState::START:
-                    if (isspace(c)) continue;
+                    if (isspace((unsigned char)c)) continue;
 
                     start = i;
-                    if (isdigit(c)) {
+                    if (isdigit((unsigned char)c)) {
                         current = c;
                         state = LexerState::IN_NUMBER;
                     }
-                    else if (isalpha(c) || c == '_') {
+                    else if (isalpha((unsigned char)c) || c == '_') {
                         current = c;
                         state = LexerState::IN_IDENTIFIER;
                     }
@@ -101,13 +101,18 @@ public:
                     else if (c == '\0') {
                         break;
                     }
+
+                    else if (c == '.') {
+                        current = c;
+                        state = LexerState::IN_NUMBER;
+                    }
                     else {
                         pushToken(TokenType::UNKNOWN, i, string(1, c));
                     }
                     break;
 
                 case LexerState::IN_NUMBER:
-                    if (isdigit(c) || c == '.') {
+                    if (isdigit((unsigned char)c) || c == '.') {
                         current += c;
                     } else {
                         pushToken(TokenType::NUMBER, start, current);
@@ -117,7 +122,7 @@ public:
                     break;
 
                 case LexerState::IN_IDENTIFIER:
-                    if (isalnum(c) || c == '_') {
+                    if (isalnum((unsigned char)c) || c == '_') {
                         current += c;
                     } else {
                         TokenType t = (functions.count(current)) ? TokenType::FUNCTION : TokenType::VARIABLE;
